@@ -1,8 +1,6 @@
 import datetime as dt
 import tkinter as tk
 from tkinter import ttk
-from tkinter.ttk import *
-
 import tkinter.font as tkFont
 from random import uniform
 import matplotlib.figure as figure
@@ -17,7 +15,6 @@ import os
 # Parameters
 update_interval = 200  # Time (ms) between polling/animation updates
 max_elements = 1440  # Maximum number of elements to store in plot lists
-
 # Declare global variables
 root = None
 dfont = None
@@ -110,21 +107,55 @@ def dsave():
 
 
 def dpause():
-    pass
+    ani.event_source.stop()
 
-
-def run(self,fargs):
+def run():
     var.set(gas_select.get())
-    self.ani = animation.FuncAnimation(fig,
-                              animate,
-                              fargs=fargs,
-                              interval=update_interval)
+    ani.event_source.start()
     print("running")
 
 def upload():
     from subprocess import Popen
     Popen(["python","upload.py"])
     pass
+
+def calibrate():
+    window = tk.Toplevel(root)
+    window.geometry("300x300")
+
+    wframe = tk.Frame(window)
+    wframe.configure(bg='white')
+    wframe.pack(fill=tk.BOTH, expand=1)
+    wlabel_celsius = tk.Label(wframe, textvariable=temp_c, font=dfont, bg='white')
+    wlabel_data1 = tk.Label(wframe, textvariable=calib_factor1, font=dfont, bg='white')
+    wlabel_data2 = tk.Label(wframe, textvariable=calib_factor2, font=dfont, bg='white')
+    button_data1 = tk.Button(wframe,
+                             text="data point 1",
+                             font=dfont,
+                             command=setdata(1))
+    button_data2 = tk.Button(wframe,
+                             text="data point 2",
+                             font=dfont,
+                             command=setdata(2))
+    wlabel_celsius.grid(row=0, column=0, columnspan=2)
+    button_data1.grid(row=1, column=0, columnspan=2)
+    button_data2.grid(row=2, column=0, columnspan=2)
+    wlabel_data1.grid(row=1, column=2, columnspan=2)
+    wlabel_data2.grid(row=2, column=2, columnspan=2)
+
+    button_close = tk.Button (wframe,
+                              text='OK',
+                              font=dfont,
+                              command=window.destroy).grid(row=3, column=0, columnspan=2)
+
+
+def setdata(i):
+    if i == 1:
+        calib_factor1.set(temp_c.get())
+    else:
+        if i == 2:
+            calib_factor2.set(temp_c.get())
+
 
 # This function is called periodically from FuncAnimation
 def animate(i, ax1, ax2, xs, temps, lights, temp_c, lux):
@@ -174,13 +205,6 @@ def animate(i, ax1, ax2, xs, temps, lights, temp_c, lux):
     # Make sure plots stay visible or invisible as desired
     ax1.collections[0].set_visible(temp_plot_visible)
     ax2.get_lines()[0].set_visible(light_plot_visible)
-
-
-# Dummy function prevents segfault
-def _destroy(event):
-    pass
-
-
 ###############################################################################
 # Main script
 
@@ -211,9 +235,13 @@ lights = []
 # Variables for holding temperature and light data
 temp_c = tk.DoubleVar()
 lux = tk.DoubleVar()
+calib_factor1 = tk.DoubleVar()
+calib_factor2 = tk.DoubleVar()
+calib_factor1.set(0)
+calib_factor2.set(0)
 
 # Create dynamic font for text
-dfont = tkFont.Font(size=-24)
+dfont = tkFont.Font(size=-20)
 
 # Create a Tk Canvas widget out of our figure
 canvas = FigureCanvasTkAgg(fig, master=frame)
@@ -227,8 +255,6 @@ gas_select = ttk.Combobox(frame,
                                   "Sensor4"],
                           font=dfont)
 gas_select.current(0)
-fargs = (ax1, ax2, xs, temps, lights, temp_c, lux)
-
 var = tk.StringVar()
 varr = var.set(gas_select.get())
 label_temp = tk.Label(frame, textvariable=var, font=dfont, bg='white')
@@ -245,10 +271,10 @@ button_light = tk.Button(frame,
                          text="Toggle Light",
                          font=dfont,
                          command=toggle_light)
-button_quit = tk.Button(frame,
-                        text="Quit",
-                        font=dfont,
-                        command=root.destroy)
+button_calib = tk.Button(frame,
+                         text="Calibrate",
+                         font=dfont,
+                         command=calibrate)
 button_save = tk.Button(frame,
                         text="Save",
                         font=dfont,
@@ -259,16 +285,16 @@ button_pause = tk.Button(frame,
                          command=dpause)
 button_run = tk.Button  (frame,
                          text="Run",
-                         font=dfont)
-root.bind(button_run,run(root, fargs))
+                         font=dfont,
+                         command=run)
 button_upload =tk.Button(frame,
                          text="Upload",
                          font=dfont,
                          command=upload)
 menubar = tk.Menu(root)
 editmenu = tk.Menu(menubar,tearoff=0)
-editmenu.add_command(label="Sensor1",command = dpause())
-editmenu.add_command(label="Sensor2",command = dpause())
+# editmenu.add_command(label="Sensor1",command = dpause())
+# editmenu.add_command(label="Sensor2",command = dpause())
 menubar.add_cascade(label="Choose Sensor", menu=editmenu)
 
 # Lay out widgets in a grid in the frame
@@ -288,7 +314,7 @@ label_lux.grid(row=4, column=4, sticky=tk.E)
 label_unitlux.grid(row=4, column=5, sticky=tk.W)
 button_temp.grid(row=6, column=0, columnspan=2)
 button_light.grid(row=6, column=2, columnspan=2)
-button_quit.grid(row=6, column=4, columnspan=2)
+button_calib.grid(row=6, column=4, columnspan=2)
 button_save.grid(row=7, column=0, columnspan=2)
 button_pause.grid(row=7, column=2, columnspan=2)
 button_upload.grid(row=7, column=4, columnspan=2)
@@ -302,27 +328,18 @@ for i in range(0, 5):
     frame.rowconfigure(i, weight=1)
 for i in range(0, 5):
     frame.columnconfigure(i, weight=1)
-
-# Bind F11 to toggle fullscreen and ESC to end fullscreen
-root.bind('<F11>', toggle_fullscreen)
-root.bind('<Escape>', end_fullscreen)
-
-# Have the resize() function be called every time the window is resized
-#root.bind('<Configure>', resize)
-
-# Call empty _destroy function on exit to prevent segmentation fault
-root.bind("<Destroy>", _destroy)
-
 # Initialize our sensors
 
-
 # Call animate() function periodically
-
-
+fargs = (ax1, ax2, xs, temps, lights, temp_c, lux)
+ani = animation.FuncAnimation(fig,
+                              animate,
+                              fargs=fargs,
+                              interval=update_interval)
 
 # Start in fullscreen mode and run
 root.title("welcome to PID")
-root.geometry('700x500')
+root.geometry('800x600')
 root.config(menu=menubar)
 # toggle_fullscreen()
 root.mainloop()

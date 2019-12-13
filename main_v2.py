@@ -1,8 +1,6 @@
 import datetime as dt
 import tkinter as tk
 from tkinter import ttk
-from tkinter.ttk import *
-
 import tkinter.font as tkFont
 from random import uniform
 import matplotlib.figure as figure
@@ -138,7 +136,7 @@ def calibrate():
     button_data2 = tk.Button(wframe,
                              text="data point 2",
                              font=dfont,
-                             command=window.setdata(2))
+                             command=setdata(2))
     wlabel_celsius.grid(row=0, column=0, columnspan=2)
     button_data1.grid(row=1, column=0, columnspan=2)
     button_data2.grid(row=2, column=0, columnspan=2)
