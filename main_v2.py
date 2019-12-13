@@ -149,12 +149,7 @@ def calibrate():
                               command=window.destroy).grid(row=3, column=0, columnspan=2)
 
 
-def setdata(i):
-    if i == 1:
-        calib_factor1.set(temp_c.get())
-    else:
-        if i == 2:
-            calib_factor2.set(temp_c.get())
+
 
 
 # This function is called periodically from FuncAnimation

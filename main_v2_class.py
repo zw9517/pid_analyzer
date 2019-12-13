@@ -88,7 +88,7 @@ class Demo1:
 
     def new_window(self):
         self.newWindow = tk.Toplevel(self.master)
-        self.app = Demo2(self.newWindow)
+        self.app = Calibrate(self.newWindow)
 
     def animate(self, i, ax1, xs, temps, temp_c):
         try:
@@ -112,17 +112,34 @@ class Demo1:
         self.ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
         self.ax1.collections[0].set_visible(temp_plot_visible)
 
-class Demo2:
+class Calibrate:
     def __init__(self, master):
-
-        self.dfont = tkFont.Font(size=-20)
-        self.nfont = tkFont.Font(size=-36)
         self.master = master
         self.frame = tk.Frame(self.master)
         master.geometry("300x300")
-        self.label_temp = tk.Label(self.frame, textvariable=temp_c).grid(row=1)
-        self.quitButton = tk.Button(self.frame, text = 'Quit', width = 25, command = self.close_windows).grid(row=2)
+        self.frame.configure(bg='black')
+        self.dfont = tkFont.Font(size=-20)
+        self.nfont = tkFont.Font(size=-36)
+        self.frame.pack(fill=tk.BOTH, expand=1)
+        self.calib_factor1 = tk.DoubleVar()
+        self.calib_factor2 = tk.DoubleVar()
+        self.calib_factor1.set(0.00)
+        self.calib_factor2.set(0.00)
+
+        self.label_data = tk.Label(self.frame, textvariable=temp_c, font=self.nfont, bg='white').grid(row=0)
+        self.label_calib1 = tk.Label(self.frame, textvariable=self.calib_factor1,font=self.dfont, bg='white').grid(row=1,column=1)
+        self.label_calib2 = tk.Label(self.frame, textvariable=self.calib_factor2,font=self.dfont, bg='white').grid(row=2,column=1)
+        self.button_data1 = tk.Button(self.frame, text="data point 1",font=self.dfont, command=lambda: self.setdata(1)).grid(row=1,column=0)
+        self.button_data2 = tk.Button(self.frame, text="data point 2",font=self.dfont, command=lambda: self.setdata(2)).grid(row=2,column=0)
+        self.quitButton = tk.Button(self.frame, text = 'Quit',font=self.dfont, width = 25, command = self.close_windows).grid(row=3)
         self.frame.pack()
+
+    def setdata(self,i):
+        if i == 1:
+            self.calib_factor1.set(temp_c.get())
+        else:
+            if i == 2:
+                self.calib_factor2.set(temp_c.get())
     def close_windows(self):
         self.master.destroy()
 
