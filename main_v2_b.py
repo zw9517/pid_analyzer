@@ -1,4 +1,6 @@
 import numpy as np
+import time
+import matplotlib
 import matplotlib.figure as figure
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
@@ -10,6 +12,8 @@ import os
 import tkinter as tk
 from tkinter import ttk
 import tkinter.font as tkFont
+import pylab
+
 #import paho.mqtt.client as paho
 import ssl
 #import Adafruit_ADS1x15
@@ -46,7 +50,7 @@ GAIN = 1
 # else:
 #     print("waiting for connection")
 # Parameters
-update_interval = 50  # Time (ms) between polling/animation updates
+update_interval = 10  # Time (ms) between polling/animation updates
 max_elements = 40  # Maximum number of elements to store in plot lists
 root = None
 dfont = None
@@ -67,39 +71,45 @@ class Demo1:
         sensor1_array = []
         global temp_c
         temp_c = tk.DoubleVar()
+        global aveg
+        aveg = tk.DoubleVar()
         self.max_temp_c = tk.DoubleVar()
         self.sensor1_array = sensor1_array
         self.xs = xs
+        self.max_count = 0
+        self.max_temp = 0
         self.state = tk.BooleanVar()
         self.state.set(False)
         self.dfont = tkFont.Font(size=-20)
         self.nfont = tkFont.Font(size=-36)
         self.master = master
         self.frame = tk.Frame(self.master)
+        self.frame.configure(background = 'black')
+        self.start = time.monotonic()
         for w in self.frame.winfo_children():
             w.grid(padx=5, pady=5)
         # Layout
+        self.textc = '#4cf55a'
         self.choices = {'Sensor1', 'Sensor2', 'Sensor3', 'Sensor4', 'Sensor5'}
         self.choice = tk.StringVar()
         self.choice.set('Sensor1')
-        self.label_disp = tk.Label(self.frame, textvariable=self.choice, font=self.dfont).grid(row=0, column=10)
-        self.label_temp = tk.Label(self.frame, textvariable=temp_c, font=self.nfont).grid(row=1, column=10)
-        self.gas_select = ttk.Combobox(self.frame, values=["Sensor1", "Sensor2", "Sensor3"], font=self.dfont).grid(
-            row=2, column=10)
-        self.button_run = tk.Button(self.frame, text='Run', font=self.dfont, width=20, command=lambda: self.run()).grid(
-            row=3, column=10)
-        self.button_calibrate = tk.Button(self.frame, text='Calibrate', font=self.dfont, width=20,
-                                          command=self.new_window).grid(row=4, column=10)
-        self.button_pause = tk.Button(self.frame, text='Pause', font=self.dfont, width=20,
-                                      command=lambda: self.dpause()).grid(row=5, column=10)
-        self.button_resume = tk.Button(self.frame, text='Resume', font=self.dfont, width=20,
-                                       command=lambda: self.dstart()).grid(row=6, column=10)
-        self.button_makeplot = tk.Button(self.frame, text='Make plot', font=self.dfont, width=20,
-                                         command=lambda: self.make_plot()).grid(row=7, column=10)
-        self.button_save = tk.Button(self.frame, text='Save', font=self.dfont, width=20,
-                                     command=lambda: self.dsave()).grid(row=8, column=10)
-        self.button_upload = tk.Button(self.frame, text='Upload', font=self.dfont, width=20,
-                                       command=lambda: self.upload()).grid(row=9, column=10)
+        self.label_disp = tk.Label(self.frame, textvariable=self.choice, font=self.dfont, fg=self.textc,bg='black').grid(row=0, column=1)
+        self.label_temp = tk.Label(self.frame, textvariable=temp_c, font=self.nfont, fg=self.textc, bg='black',).grid(row=0, column=2)
+        self.label_aveg = tk.Label(self.frame, textvariable=aveg, font=self.nfont, fg=self.textc, bg='black',).grid(row=0, column=4)
+        self.label_unit = tk.Label(self.frame, text='unit', font=self.dfont, fg=self.textc, bg='black').grid(row=0, column=3)
+        self.peak = tk.Text(self.frame, height =5, width =40, font=tkFont.Font(size=-15), fg=self.textc, bg='black')
+        self.peak.grid(row=5, column=0, columnspan=5)
+        self.button_calibrate = tk.Button(self.frame, text='Calibrate', font=self.dfont, fg=self.textc, bg='black', width=8,
+                                          command=self.new_window).grid(row=6, column=0)
+        self.button_pause = tk.Button(self.frame, text='Pause', font=self.dfont, fg=self.textc, bg='black', width=8,
+                                      command=lambda: self.dpause()).grid(row=6, column=1)
+        self.button_resume = tk.Button(self.frame, text='Resume', font=self.dfont,fg=self.textc, bg='black', width=8,
+                                       command=lambda: self.dstart()).grid(row=6, column=2)
+        self.button_makeplot = tk.Button(self.frame, text='Make plot', font=self.dfont, fg=self.textc, bg='black', width=8,
+                                         command=lambda: self.make_plot()).grid(row=6, column=3)
+        self.button_save = tk.Button(self.frame, text='Save', font=self.dfont, fg=self.textc, bg='black', width=8,
+                                     command=lambda: self.dsave()).grid(row=6, column=4)
+
         self.frame.pack(fill=tk.BOTH, expand=1)
         # make figure animation
         self.fig = figure.Figure(figsize=(5, 3))
@@ -107,7 +117,7 @@ class Demo1:
         self.ax1 = self.fig.add_subplot(1, 1, 1)
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.frame)
         self.canvas_plot = self.canvas.get_tk_widget()
-        self.canvas_plot.grid(row=0, column=0, rowspan=10, columnspan=4, sticky=tk.W + tk.E + tk.N + tk.S)
+        self.canvas_plot.grid(row=1, column=0, rowspan=3, columnspan=5, sticky=tk.W + tk.E + tk.N + tk.S)
         self.fargs = (ax1, xs, sensor1_array, temp_c)
         self.ani = animation.FuncAnimation(self.fig, self.animate, fargs=self.fargs, interval=update_interval)
 
@@ -142,25 +152,13 @@ class Demo1:
         self.app = Calibrate(self.newWindow)
 
     def make_plot(self):
-        # make figure animation
-        #        self.master = master
-        #        self.frame = tk.Frame(self.master)
-        #        master.geometry("600x200")
-        #        self.frame.configure(bg='white')
-        #        self.fig=figure.Figure(figsize=(5,3))
-        #        self.fig.subplots_adjust(left=0.1, right=0.9)
-        #        self.ax1 = self.fig.add_subplot(1,1,1)
-        #        self.canvas = FigureCanvasTkAgg(self.fig, master=self.frame)
-        #        self.canvas_plot = self.canvas.get_tk_widget()
-        #        self.canvas_plot.grid(row=0, column=0, rowspan=10,columnspan=4, sticky=tk.W + tk.E + tk.N + tk.S)
-        #
-
         ax = plt.subplot(111)
         line, = plt.plot(self.xs, self.sensor1_array, "-o", lw=2, color='tab:green')
         max_data = max(self.sensor1_array)
-        max_time = mdates.num2date(self.sensor1_array.index(max_data))
-        max_time2 = mdates.num2date(self.sensor1_array.index(max_data) + 2)
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        max_time_index = self.sensor1_array.index(max_data)
+        max_time = mdates.num2date(self.xs[max_time_index])
+        formatter = matplotlib.ticker.FuncFormatter(lambda s, x: time.strftime('%M:%S', time.gmtime(s)))
+        ax.xaxis.set_major_formatter(formatter)
         ax.annotate('local max', xy=(max_time, max_data), xytext=(0, max_data + 1),
                     arrowprops=dict(facecolor='black', shrink=0.05), )
         ax.set_title('The reading vs. time')
@@ -179,19 +177,28 @@ class Demo1:
         #            self.max_temp_c.set(new_temp)
         #        print(self.max_temp_c.get())
         temp_c.set(new_temp)
-        timestamp = mdates.date2num(dt.datetime.now())
-        xs.append(timestamp)
+        now = time.monotonic()-self.start
+        xs.append(now)
         temps.append(new_temp)
         xs = xs[-max_elements:]
         temps = temps[-max_elements:]
-
-        color = 'tab:blue'
+        if new_temp > 30:
+            if new_temp > self.max_temp and self.max_count<20:
+                self.max_temp = new_temp
+                self.max_count = self.max_count-1
+            elif self.max_count>20:
+                print(self.max_temp)
+                self.max_count = 0
+            elif temp_c < self.max_temp:
+                self.max_count=self.max_count+1
         self.ax1.clear()
         self.ax1.grid()
-        self.ax1.set_ylabel('Sensor1 Data', color=color)
-        self.ax1.tick_params(axis='y', labelcolor=color)
-        self.ax1.fill_between(xs, temps, 0, linewidth=2, color=color, alpha=0.5)
-        self.ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        self.ax1.set_ylabel('Sensor1 Data', color='green')
+        self.ax1.tick_params(axis='y', labelcolor='green')
+        self.ax1.set_facecolor('black')
+        self.ax1.fill_between(xs, temps, 0, linewidth=2, color='green', alpha=0.5)
+        formatter = matplotlib.ticker.FuncFormatter(lambda s, x: time.strftime('%M:%S', time.gmtime(s)))
+        self.ax1.xaxis.set_major_formatter(formatter)
         self.ax1.collections[0].set_visible(temp_plot_visible)
         # AWS
         # mqttc.publish("PID value", new_temp, qos=1)        # topic: temperature # Publishing Temperature values
@@ -202,7 +209,7 @@ class Calibrate:
     def __init__(self, master):
         self.master = master
         self.frame = tk.Frame(self.master)
-        master.geometry("600x200")
+        master.geometry("500x400")
         self.frame.configure(bg='white')
         self.dfont = tkFont.Font(size=-20)
         self.nfont = tkFont.Font(size=-36)
@@ -226,9 +233,9 @@ class Calibrate:
                                       command=lambda: self.setdata(1)).grid(row=1, column=0)
         self.button_data2 = tk.Button(self.frame, text="data point 2", font=self.dfont,
                                       command=lambda: self.setdata(2)).grid(row=2, column=0)
-        self.confirmButton = tk.Button(self.frame, text='Confirm', font=self.dfont, width=25,
+        self.confirmButton = tk.Button(self.frame, text='Confirm', font=self.dfont, width=15,
                                        command=self.confirm).grid(row=3, column=0)
-        self.quitButton = tk.Button(self.frame, text='Quit', font=self.dfont, width=25,
+        self.quitButton = tk.Button(self.frame, text='Quit', font=self.dfont, width=15,
                                     command=self.close_windows).grid(row=3, column=1)
         self.frame.pack()
 
@@ -252,7 +259,7 @@ def main():
     root = tk.Tk()
     app = Demo1(root)
     root.title("PID Analyzer")
-    root.geometry('800x400')
+    root.geometry('500x500')
     root.mainloop()
 
 
