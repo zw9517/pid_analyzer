@@ -1,5 +1,6 @@
 import numpy as np
 import time
+from scipy import integrate
 import matplotlib
 import matplotlib.figure as figure
 import matplotlib.pyplot as plt
@@ -13,45 +14,48 @@ import tkinter as tk
 from tkinter import ttk
 import tkinter.font as tkFont
 import pylab
-
-#import paho.mqtt.client as paho
+import paho.mqtt.client as paho
 import ssl
-#import Adafruit_ADS1x15
+import Adafruit_ADS1x15
 
-#adc = Adafruit_ADS1x15.ADS1115()
+adc = Adafruit_ADS1x15.ADS1115()
 
 GAIN = 1
 
 
-# def on_connect(client, userdata, flags, rc):  # func for making connection
-#     global connflag
-#     print("Connected to AWS")
-#     connflag = True
-#     print("Connection returned result: " + str(rc))
-# def on_message(client, userdata, msg):  # Func for Sending msg
-#     print(msg.topic + " " + str(msg.payload))
-# connflag = False
-# mqttc = paho.Client()  # mqttc object
-# mqttc.on_connect = on_connect  # assign on_connect func
-# mqttc.on_message = on_message  # assign on_message func
-# awshost = "a1hvrmjbeiu1pl-ats.iot.us-east-2.amazonaws.com"
-# awsport = 8883
-# cliendId = "pid01"
-# thingName = "pid01"
-# caPath = "root-CA.crt"
-# certPath = "pid01.cert.pem"
-# keyPath = "pid01.private.key"
-# mqttc.tls_set(caPath, certfile=certPath, keyfile=keyPath, cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLSv1_2,
-#               ciphers=None)  # pass parameters
-# mqttc.connect(awshost, awsport, keepalive=60)  # connect to aws server
-# mqttc.loop_start()
-# if connflag == True:
-#     print("connected")
-# else:
-#     print("waiting for connection")
+def on_connect(client, userdata, flags, rc):  # func for making connection
+    global connflag
+    print("Connected to AWS")
+    connflag = True
+    print("Connection returned result: " + str(rc))
+
+
+def on_message(client, userdata, msg):  # Func for Sending msg
+    print(msg.topic + " " + str(msg.payload))
+
+
+connflag = False
+mqttc = paho.Client()  # mqttc object
+mqttc.on_connect = on_connect  # assign on_connect func
+mqttc.on_message = on_message  # assign on_message func
+awshost = "a1hvrmjbeiu1pl-ats.iot.us-east-2.amazonaws.com"
+awsport = 8883
+cliendId = "pid01"
+thingName = "pid01"
+caPath = "root-CA.crt"
+certPath = "pid01.cert.pem"
+keyPath = "pid01.private.key"
+mqttc.tls_set(caPath, certfile=certPath, keyfile=keyPath, cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLSv1_2,
+              ciphers=None)  # pass parameters
+mqttc.connect(awshost, awsport, keepalive=60)  # connect to aws server
+mqttc.loop_start()
+if connflag == True:
+    print("connected")
+else:
+    print("waiting for connection")
 # Parameters
 update_interval = 10  # Time (ms) between polling/animation updates
-max_elements = 40  # Maximum number of elements to store in plot lists
+max_elements = 100  # Maximum number of elements to store in plot lists
 root = None
 dfont = None
 frame = None
@@ -73,18 +77,24 @@ class Demo1:
         temp_c = tk.DoubleVar()
         global aveg
         aveg = tk.DoubleVar()
+        self.temparray = []
+        self.peak_array = []
+        self.peak_time_array = []
         self.max_temp_c = tk.DoubleVar()
         self.sensor1_array = sensor1_array
         self.xs = xs
+        self.sum = 0
         self.max_count = 0
         self.max_temp = 0
+        self.rise_count = 0
+        self.max_time = 0
         self.state = tk.BooleanVar()
         self.state.set(False)
         self.dfont = tkFont.Font(size=-20)
         self.nfont = tkFont.Font(size=-36)
         self.master = master
         self.frame = tk.Frame(self.master)
-        self.frame.configure(background = 'black')
+        self.frame.configure(background='black')
         self.start = time.monotonic()
         for w in self.frame.winfo_children():
             w.grid(padx=5, pady=5)
@@ -93,19 +103,25 @@ class Demo1:
         self.choices = {'Sensor1', 'Sensor2', 'Sensor3', 'Sensor4', 'Sensor5'}
         self.choice = tk.StringVar()
         self.choice.set('Sensor1')
-        self.label_disp = tk.Label(self.frame, textvariable=self.choice, font=self.dfont, fg=self.textc,bg='black').grid(row=0, column=1)
-        self.label_temp = tk.Label(self.frame, textvariable=temp_c, font=self.nfont, fg=self.textc, bg='black',).grid(row=0, column=2)
-        self.label_aveg = tk.Label(self.frame, textvariable=aveg, font=self.nfont, fg=self.textc, bg='black',).grid(row=0, column=4)
-        self.label_unit = tk.Label(self.frame, text='unit', font=self.dfont, fg=self.textc, bg='black').grid(row=0, column=3)
-        self.peak = tk.Text(self.frame, height =5, width =40, font=tkFont.Font(size=-15), fg=self.textc, bg='black')
+        self.label_disp = tk.Label(self.frame, textvariable=self.choice, font=self.dfont, fg=self.textc,
+                                   bg='black').grid(row=0, column=1)
+        self.label_temp = tk.Label(self.frame, textvariable=temp_c, font=self.nfont, fg=self.textc, bg='black', ).grid(
+            row=0, column=2)
+        self.label_aveg = tk.Label(self.frame, textvariable=aveg, font=self.nfont, fg=self.textc, bg='black', ).grid(
+            row=0, column=4)
+        self.label_unit = tk.Label(self.frame, text='unit', font=self.dfont, fg=self.textc, bg='black').grid(row=0,
+                                                                                                             column=3)
+        self.peak = tk.Text(self.frame, height=5, width=40, font=tkFont.Font(size=-15), fg=self.textc, bg='black')
         self.peak.grid(row=5, column=0, columnspan=5)
-        self.button_calibrate = tk.Button(self.frame, text='Calibrate', font=self.dfont, fg=self.textc, bg='black', width=8,
+        self.button_calibrate = tk.Button(self.frame, text='Calibrate', font=self.dfont, fg=self.textc, bg='black',
+                                          width=8,
                                           command=self.new_window).grid(row=6, column=0)
         self.button_pause = tk.Button(self.frame, text='Pause', font=self.dfont, fg=self.textc, bg='black', width=8,
                                       command=lambda: self.dpause()).grid(row=6, column=1)
-        self.button_resume = tk.Button(self.frame, text='Resume', font=self.dfont,fg=self.textc, bg='black', width=8,
+        self.button_resume = tk.Button(self.frame, text='Resume', font=self.dfont, fg=self.textc, bg='black', width=8,
                                        command=lambda: self.dstart()).grid(row=6, column=2)
-        self.button_makeplot = tk.Button(self.frame, text='Make plot', font=self.dfont, fg=self.textc, bg='black', width=8,
+        self.button_makeplot = tk.Button(self.frame, text='Make plot', font=self.dfont, fg=self.textc, bg='black',
+                                         width=8,
                                          command=lambda: self.make_plot()).grid(row=6, column=3)
         self.button_save = tk.Button(self.frame, text='Save', font=self.dfont, fg=self.textc, bg='black', width=8,
                                      command=lambda: self.dsave()).grid(row=6, column=4)
@@ -154,43 +170,59 @@ class Demo1:
     def make_plot(self):
         ax = plt.subplot(111)
         line, = plt.plot(self.xs, self.sensor1_array, "-o", lw=2, color='tab:green')
-        max_data = max(self.sensor1_array)
-        max_time_index = self.sensor1_array.index(max_data)
-        max_time = mdates.num2date(self.xs[max_time_index])
+        #        max_data = max(self.sensor1_array)
+        #        max_time_index = self.sensor1_array.index(max_data)
+        #        max_time = mdates.num2date(self.xs[max_time_index])
         formatter = matplotlib.ticker.FuncFormatter(lambda s, x: time.strftime('%M:%S', time.gmtime(s)))
         ax.xaxis.set_major_formatter(formatter)
-        ax.annotate('local max', xy=(max_time, max_data), xytext=(0, max_data + 1),
-                    arrowprops=dict(facecolor='black', shrink=0.05), )
+        #        ax.annotate('local max', xy=(max_time, max_data), xytext=(0, max_data + 1),
+        #                    arrowprops=dict(facecolor='black', shrink=0.05), )
         ax.set_title('The reading vs. time')
-        ax.set_xlabel('Timestamp')
+        ax.set_xlabel('Time mm/ss')
         ax.set_ylabel('Reading()')
         ax.grid(True)
+        print("simps is %d, trapz is %d, the sum is %d" % (self.integrsimp, self.integrtrap, self.sum))
         plt.show()
 
     def animate(self, i, ax1, xs, temps, temp_c):
         try:
-            #new_temp = adc.read_adc(0, gain=GAIN)
-            new_temp = round(uniform(20.0, 25.0), 2)
+            new_reading = adc.read_adc(0, gain=GAIN)
+            # new_temp = round(uniform(20.0, 25.0), 2)
         except:
             pass
-        #        if new_temp > self.max_temp_c.get():
-        #            self.max_temp_c.set(new_temp)
-        #        print(self.max_temp_c.get())
-        temp_c.set(new_temp)
-        now = time.monotonic()-self.start
+        if len(self.temparray) < 5:
+            self.temparray.append(new_reading)
+        else:
+            self.temparray.pop(0)
+            self.temparray.append(new_reading)
+        new_temp = np.mean(self.temparray)
+        temp_c.set('%.2f' % new_temp)
+        now = time.monotonic() - self.start
         xs.append(now)
         temps.append(new_temp)
+        self.integrsimp = integrate.simps(temps, xs)
+        self.integrtrap = np.trapz(temps, xs)
+        self.sum = self.sum + new_temp * 0.2
         xs = xs[-max_elements:]
         temps = temps[-max_elements:]
-        if new_temp > 30:
-            if new_temp > self.max_temp and self.max_count<20:
+        if new_temp > 20:
+            if new_temp > self.max_temp:
                 self.max_temp = new_temp
-                self.max_count = self.max_count-1
-            elif self.max_count>20:
-                print(self.max_temp)
+                self.max_count = self.max_count - 1
+                self.max_time = now
+                self.rise_count += 1
+                print(self.rise_count)
+            elif new_temp < self.max_temp and self.max_count > 11:
+                self.max_temp = 0
                 self.max_count = 0
-            elif temp_c < self.max_temp:
-                self.max_count=self.max_count+1
+            elif self.max_count > 10 and self.rise_count > 10:
+                self.max_count = 0
+                self.rise_count = 0
+                self.peak.insert(tk.END, "Found max at %d \n" % (self.max_temp))
+                self.max_temp = 0
+            elif temp_c.get() < self.max_temp:
+                self.max_count = self.max_count + 1
+
         self.ax1.clear()
         self.ax1.grid()
         self.ax1.set_ylabel('Sensor1 Data', color='green')
@@ -259,11 +291,12 @@ def main():
     root = tk.Tk()
     app = Demo1(root)
     root.title("PID Analyzer")
-    root.geometry('500x500')
+    root.geometry('600x500')
     root.mainloop()
 
 
 if __name__ == '__main__':
     main()
+
 
 
