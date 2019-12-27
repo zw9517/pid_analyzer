@@ -1,272 +1,360 @@
-from tkinter.ttk import *
-from tkinter import *
-import tkinter as tk
-import time
-from time import strftime, sleep
-from datetime import datetime
 import numpy as np
-import os
-from random import uniform
-from pandas import DataFrame
+import time
+from scipy import integrate
+from scipy import optimize
+import scipy as scipy
+import matplotlib
+import matplotlib.figure as figure
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+import matplotlib.dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from random import uniform
+import datetime as dt
 import os
-import socket
+import tkinter as tk
+from tkinter import ttk
+import tkinter.font as tkFont
+import pylab
+import paho.mqtt.client as paho
 import ssl
-from pandas.plotting import register_matplotlib_converters
+import Adafruit_ADS1x15
 
-# import RPi.GPIO as GPIO  # Allows us to call our GPIO pins and names it just GPIO
-# import v
+adc = Adafruit_ADS1x15.ADS1115()
 
-"""
-GPIO.setmode(GPIO.BCM)  # Set's GPIO pins to BCM GPIO numbering
-INPUT_PIN = 4  # Sets our input pin, in this example I'm connecting our button to pin 4. Pin 0 is the SDA pin so I avoid using it for sensors/buttons
-GPIO.setup(INPUT_PIN, GPIO.IN)  # Set our input pin to be an input
-"""
-
-"""
-Data2 = {'Time': [0,1,2,3,4,5,6,7],
-         'PPD Concentration': [43,65,34,45,65,54,66,74]}
-
-df2 = DataFrame(Data2, columns=['Time', 'PPD Concentration'])
-df2 = df2[['Time', 'PPD Concentration']].groupby('Time').sum()
-"""
-
-# NamedTuple Method = {analysisTime, baselineStartTime, baselineLength, ovenTemp, segmentLength, known_only}
-method_factory = {300, 1, 4, 20.00, 5, 0}
-# NamedTuple Comp#={compNum, compName, active, reference, compRT, compWindow, responseFactor, calStandard, calibrationFactor }
-comp1 = {1, "CH4", 1, 1, 16, 2, 1.00, 100.00, 2.20};
-comp2 = {2, "CO", 1, 0, 24, 2, 1.00, 100.00, 1.60};
-comp3 = {3, "C2H2", 1, 0, 35, 2, 1.00, 100.00, 0.10};
-comp4 = {4, "O2", 1, 0, 55, 2, 1.00, 100.00, 2.40};
-comp5 = {5, "H2", 1, 0, 67, 2, 1.00, 100.00, 1.00};
-comp6 = {6, "NO", 1, 0, 78, 2, 1.00, 100.00, 1.84};
-
-# NamedTuple Peak#={peakNum, gasName, peakTime, height, concen, calFactor, active known}
-peak1 = {1, "unknown", 0, 0, 0.0, 0.0, 1, 1};
-peak2 = {2, "unknown", 0, 0, 0.0, 0.0, 1, 1};
-peak3 = {3, "unknown", 0, 0, 0.0, 0.0, 1, 1};
-peak4 = {4, "unknown", 0, 0, 0.0, 0.0, 1, 1};
-peak5 = {5, "unknown", 0, 0, 0.0, 0.0, 1, 1};
-peak6 = {6, "unknown", 0, 0, 0.0, 0.0, 1, 1};
-
-# !/usr/bin/env python
-
-dummy = []
-timeser = []
-dummy_index =[]
-# NamedTuple Data#={date_now, time_now, run_number, peak_number, comp_name, conc, ret_time, site}
-data_current = {"00/00/00", "00:00:00", 0, 0, " ? ", -1, 0, 1};
+GAIN = 1
 
 
-def create_window():
-    window = tk.Toplevel(root)
-    return window
+def on_connect(client, userdata, flags, rc):  # func for making connection
+    global connflag
+    print("Connected to AWS")
+    connflag = True
+    print("Connection returned result: " + str(rc))
 
 
-class PID_analyzer:
+def on_message(client, userdata, msg):  # Func for Sending msg
+    print(msg.topic + " " + str(msg.payload))
+
+
+connflag = False
+mqttc = paho.Client()  # mqttc object
+mqttc.on_connect = on_connect  # assign on_connect func
+mqttc.on_message = on_message  # assign on_message func
+awshost = "a1hvrmjbeiu1pl-ats.iot.us-east-2.amazonaws.com"
+awsport = 8883
+cliendId = "pid01"
+thingName = "pid01"
+caPath = "root-CA.crt"
+certPath = "pid01.cert.pem"
+keyPath = "pid01.private.key"
+mqttc.tls_set(caPath, certfile=certPath, keyfile=keyPath, cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLSv1_2,
+              ciphers=None)  # pass parameters
+mqttc.connect(awshost, awsport, keepalive=60)  # connect to aws server
+mqttc.loop_start()
+if connflag == True:
+    print("connected")
+else:
+    print("waiting for connection")
+# Parameters
+update_interval = 10  # Time (ms) between polling/animation updates
+max_elements = 100  # Maximum number of elements to store in plot lists
+root = None
+dfont = None
+frame = None
+canvas = None
+ax1 = None
+temp_plot_visible = None
+dtime = []
+# Global variable to remember various states
+fullscreen = False
+temp_plot_visible = True
+light_plot_visible = True
+
+
+class Demo1:
     def __init__(self, master):
+        xs = []
+        sensor1_array = []
+        global temp_c
+        temp_c = tk.DoubleVar()
+        global aveg
+        aveg = tk.DoubleVar()
+        self.temparray = []
+        self.maxdata_arr = []
+        self.maxtime_arr = []
+        self.max_temp_c = tk.DoubleVar()
+        self.sensor1_array = sensor1_array
+        self.xs = xs
+        self.sum = 0
+        self.fall_count = 0
+        self.max_temp = 0
+        self.rise_count = 0
+        self.max_time = 0
+        self.noise = 0
+        self.state = tk.BooleanVar()
+        self.state.set(False)
+        self.dfont = tkFont.Font(size=-20)
+        self.nfont = tkFont.Font(size=-36)
         self.master = master
-        master.title("PID Analyzer")
+        self.frame = tk.Frame(self.master)
+        self.frame.configure(background='black')
+        self.start = time.monotonic()
+        for w in self.frame.winfo_children():
+            w.grid(padx=5, pady=5)
+        # Layout
+        self.textc = '#4cf55a'
+        self.choices = {'Sensor1', 'Sensor2', 'Sensor3', 'Sensor4', 'Sensor5'}
+        self.choice = tk.StringVar()
+        self.choice.set('Sensor1')
+        self.label_disp = tk.Label(self.frame, textvariable=self.choice, font=self.dfont, fg=self.textc,
+                                   bg='black').grid(row=0, column=1)
+        self.label_temp = tk.Label(self.frame, textvariable=temp_c, font=self.nfont, fg=self.textc, bg='black', ).grid(
+            row=0, column=2)
+        self.label_aveg = tk.Label(self.frame, textvariable=aveg, font=self.nfont, fg=self.textc, bg='black', ).grid(
+            row=0, column=4)
+        self.label_unit = tk.Label(self.frame, text='unit', font=self.dfont, fg=self.textc, bg='black').grid(row=0,
+                                                                                                             column=3)
+        self.peak = tk.Text(self.frame, height=5, width=40, font=tkFont.Font(size=-15), fg=self.textc, bg='black')
+        self.peak.grid(row=5, column=0, columnspan=5)
+        self.button_calibrate = tk.Button(self.frame, text='Calibrate', font=self.dfont, fg=self.textc, bg='black',
+                                          width=8,
+                                          command=self.new_window).grid(row=6, column=0)
+        self.button_pause = tk.Button(self.frame, text='Pause', font=self.dfont, fg=self.textc, bg='black', width=8,
+                                      command=lambda: self.dpause()).grid(row=6, column=1)
+        self.button_resume = tk.Button(self.frame, text='Resume', font=self.dfont, fg=self.textc, bg='black', width=8,
+                                       command=lambda: self.dstart()).grid(row=6, column=2)
+        self.button_makeplot = tk.Button(self.frame, text='Make plot', font=self.dfont, fg=self.textc, bg='black',
+                                         width=8,
+                                         command=lambda: self.make_plot()).grid(row=6, column=3)
+        self.button_save = tk.Button(self.frame, text='Save', font=self.dfont, fg=self.textc, bg='black', width=8,
+                                     command=lambda: self.dsave()).grid(row=6, column=4)
 
-        self.total = 24.0
-        self.entered_number = 0
-        large_textsize = 30
-        medium_textsize = 20
+        self.frame.pack(fill=tk.BOTH, expand=1)
+        # make figure animation
+        self.fig = figure.Figure(figsize=(5, 3))
+        self.fig.subplots_adjust(left=0.1, right=0.9)
+        self.ax1 = self.fig.add_subplot(1, 1, 1)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.frame)
+        self.canvas_plot = self.canvas.get_tk_widget()
+        self.canvas_plot.grid(row=1, column=0, rowspan=3, columnspan=5, sticky=tk.W + tk.E + tk.N + tk.S)
+        self.fargs = (ax1, xs, sensor1_array, temp_c)
+        self.ani = animation.FuncAnimation(self.fig, self.animate, fargs=self.fargs, interval=update_interval)
 
-        self.total_label_text = IntVar()
-        self.total_label_text.set(self.total)
-        self.total_label = Label(master, textvariable=self.total_label_text, font=('calibri', 30, 'bold'),
-                                 background='black',
-                                 foreground='white')
+    def run(self):
+        print("run")
 
-        self.label = Label(master, text="PPD: ", font=('calibri', large_textsize, 'bold'),
-                           background='black',
-                           foreground='white')
+    def dpause(self):
+        self.ani.event_source.stop()
 
-        self.timelabel = Label(master, text="Time is", font=('calibri', medium_textsize),
-                               background='black',
-                               foreground='white')
-        self.lbl = Label(root, font=('calibri', medium_textsize),
-                         background='black',
-                         foreground='white')
+    def dstart(self):
+        self.ani.event_source.start()
 
-        vcmd = master.register(self.validate)  # we have to wrap the command
-        self.entry = Entry(master, validate="key", validatecommand=(vcmd, '%P'))
-        self.savevalue = Button(master, text="Save", command=lambda: self.savesth())
-        self.add_button = Button(master, text="+", command=lambda: self.update("add"))
-        self.startmeasure = Button(master, text="measure", command=lambda: self.measure())
-        self.subtract_button = Button(master, text="-", command=lambda: self.update("subtract"))
-        self.reset_button = Button(master, text="Reset", command=lambda: self.update("reset"))
-        self.awsupload = Button(master, text="Upload", command=lambda: self.awsupload(dummy))
-        self.generate_graph = Button(master, text="Generate", command=lambda: self.show_graph(dummy, timeser))
-        self.combobox = Combobox(root)
-        self.combobox['values'] = ('CH4', 'CO', 'C2H2', 'O2', 'H2', 'NO')
-        self.combobox.current(1)
+    def upload(self):
+        from subprocess import Popen
+        Popen(["python", "aws_publish.py"])
+        pass
 
-        # LAYOUT
-        self.timelabel.grid(row=0, column=0)
-        self.lbl.grid(row=0, column=1)
-        self.time()
-        self.label.grid(row=1, column=0, sticky=W)
-        self.total_label.grid(row=1, column=1)
-        self.startmeasure.grid(row=1, column=2)
-
-        self.entry.grid(row=2, column=0, columnspan=3, sticky=W + E)
-
-        self.add_button.grid(row=3, column=0)
-        self.subtract_button.grid(row=3, column=1)
-        self.reset_button.grid(row=3, column=2, sticky=W + E)
-        self.generate_graph.grid(row=4, column=0)
-        self.combobox.grid(row=4, column=1)
-        self.savevalue.grid(row=5, column=1)
-        self.awsupload.grid(row=5, column=2)
-
-    def time(self):
-        string = strftime('%H:%M:%S %p')
-        self.lbl.config(text=string)
-        self.lbl.after(1000, self.time)
-
-    def calibrate(self):
-        print("use certain gas")
-        time.sleep(5)  # run a countdown
-        sensorinput = 1
-        calfactor1 = sensorinput
-        time.sleep(5)  # run a countdown
-        sensorinput = 2
-        calfactor2 = sensorinput
-        # use calfactors to calibrate the system
-
-    def measure(self):
-        """
-        while True:
-           if (GPIO.input(INPUT_PIN) == True): # Physically read the pin now
-                    print('3.3')
-           else:
-                    print('0')
-           sleep(1);
-        """
-        # take sensor measurement and write to a csv file.
-
-        file = open("data_log.csv", "a")
-        i = 0
+    def dsave(self):
+        self.file = open("data_log.csv", "a")
         if os.stat("data_log.csv").st_size == 0:
-            file.write("Time,Sensor1,Sensor2,Sensor3,Sensor4,Sensor5\n")
-        while i < 10:
+            self.file.write("Time,Sensor1\n")
+        i = 0
+        while i < len(self.sensor1_array):
+            self.file.write(str(self.xs[i]) + ","
+                            + str(self.sensor1_array[i]) + "\n")
             i = i + 1
-            now = datetime.now()
-            timereading = uniform(20.0, 25.0)
-            file.write(str(now) + "," + str(timereading) + "," + str(timereading) + "," + str(i - 10) + "," + str(
-                i + 5) + "," + str(
-                i * i) + "\n")
-            file.flush()
-            dummy.append(timereading)
-            timeser.append(now)
-            sleep(0.1)
-        return dummy, timeser
+            self.file.flush()
+        print("saved")
 
+    def new_window(self):
+        self.newWindow = tk.Toplevel(self.master)
+        self.app = Calibrate(self.newWindow)
 
+    def _1gaussian(self, x, amp1, cen1, sigma1):
+        return amp1 * (1 / (sigma1 * (np.sqrt(2 * np.pi)))) * (np.exp((-1.0 / 2.0) * (((T - cen1) / sigma1) ** 2)))
 
-    def validate(self, new_text):
-        if not new_text:
-            self.entered_number = 0
-            return True
+    def _2gaussian(self, x, amp1, cen1, sigma1, amp2, cen2, sigma2):
+        return amp1 * (1 / (sigma1 * (np.sqrt(2 * np.pi)))) * (np.exp((-1.0 / 2.0) * (((T - cen1) / sigma1) ** 2))) + \
+               amp2 * (1 / (sigma2 * (np.sqrt(2 * np.pi)))) * (np.exp((-1.0 / 2.0) * (((T - cen2) / sigma2) ** 2)))
 
-        try:
-            self.entered_number = int(new_text)
-            return True
-        except ValueError:
-            return False
+    def _1Lorentzian(self, x, amp, cen, wid):
+        return amp * wid ** 2 / ((x - cen) ** 2 + wid ** 2)
 
-    def show_graph(self, dummy, timeser):
-        """
-        figure2 = plt.Figure(figsize=(5, 3), dpi=100)
-        ax2 = figure2.add_subplot(111)
-        line2 = FigureCanvasTkAgg(figure2, create_window())
-        line2.get_tk_widget().grid(row=5,column=0)
-        df2.plot(kind='line', legend=True, ax=ax2, color='r', marker='o', fontsize=10)
-        ax2.set_title('Time Vs. PPD Concentration')
-        """
+    def _2Lorentzian(self, x, amp1, cen1, wid1, amp2, cen2, wid2):
+        return (amp1 * wid1 ** 2 / ((x - cen1) ** 2 + wid1 ** 2)) + \
+               (amp2 * wid2 ** 2 / ((x - cen2) ** 2 + wid2 ** 2))
 
-        # t = np.arange(0.0, 2.0, 0.01)
-        # s = 1 + np.sin(2 * np.pi * t)
-        # print(type(t))
-        # print(type(dummy))
-        #
-        # fig, ax = plt.subplots()
-        # ax.plot(timeser, dummy)
-        # fig.savefig("test.png")
-        # plt.show()
+    def _3Lorentzian(self, x, amp1, cen1, wid1, amp2, cen2, wid2, amp3, cen3, wid3):
+        return (amp1 * wid1 ** 2 / ((x - cen1) ** 2 + wid1 ** 2)) + \
+               (amp2 * wid2 ** 2 / ((x - cen2) ** 2 + wid2 ** 2)) + \
+               (amp3 * wid3 ** 2 / ((x - cen3) ** 2 + wid3 ** 2))
 
+    def _4Lorentzian(self, x, amp1, cen1, wid1, amp2, cen2, wid2, amp3, cen3, wid3, amp4, cen4, wid4):
+        return (amp1 * wid1 ** 2 / ((x - cen1) ** 2 + wid1 ** 2)) + \
+               (amp2 * wid2 ** 2 / ((x - cen2) ** 2 + wid2 ** 2)) + \
+               (amp3 * wid3 ** 2 / ((x - cen3) ** 2 + wid3 ** 2)) + \
+               (amp4 * wid4 ** 2 / ((x - cen4) ** 2 + wid4 ** 2))
+
+    def make_plot(self):
         ax = plt.subplot(111)
+        raw = self.sensor1_array
+        disp_data = [i - self.noise for i in raw]
+        # Dislay the data
+        line, = plt.plot(self.xs, disp_data, "ro", lw=2, color='tab:red')
+        formatter = matplotlib.ticker.FuncFormatter(lambda s, x: time.strftime('%M:%S', time.gmtime(s)))
+        ax.xaxis.set_major_formatter(formatter)
+        ax.set_title('The reading vs. time')
+        ax.set_xlabel('Time mm/ss')
+        ax.set_ylabel('Reading()')
+        ax.grid(True)
 
-        dummy_ind = range(0, len(dummy))
-        line, = plt.plot(dummy_ind, dummy, lw=2)
-        b = max(dummy)
-        a = dummy.index(b)
-        plt.annotate('local max is at %d and %d'%(a, b), xy=(a, b), xytext=(a+1, b+1),
-                     arrowprops=dict(facecolor='black', shrink=0.05),
-                     )
+        # Integrate
+        print("simps is %d, trapz is %d, the sum is %d" % (self.integrsimp, self.integrtrap, self.sum))
 
-        plt.ylim(20,30)
+        # Peak Seperation
+        if len(self.maxdata_arr) == 2:
+            self.popt_lorentz, self.pcov_lorentz = scipy.optimize.curve_fit(self._2Lorentzian, self.xs, disp_data,
+                                                                            p0=[self.maxdata_arr[0],
+                                                                                self.maxtime_arr[0], 5,
+                                                                                self.maxdata_arr[1],
+                                                                                self.maxtime_arr[1], 5])
+
+        self.perr_lorentz = np.sqrt(np.diag(self.pcov_lorentz))
+
+        pars_1 = self.popt_lorentz[0:3]
+        pars_2 = self.popt_lorentz[3:6]
+        lorentz_peak_1 = self._1Lorentzian(self.xs, *pars_1)
+        lorentz_peak_2 = self._1Lorentzian(self.xs, *pars_2)
+
+        line, = plt.plot(self.xs, self._2Lorentzian(self.xs, *self.popt_lorentz), "k--")
+
+        # peak 1
+        plt.plot(self.xs, lorentz_peak_1, "g")
+        plt.fill_between(self.xs, lorentz_peak_1.min(), lorentz_peak_1, facecolor="green", alpha=0.5)
+
+        # peak 2
+        plt.plot(self.xs, lorentz_peak_2, "y")
+        plt.fill_between(self.xs, lorentz_peak_2.min(), lorentz_peak_2, facecolor="yellow", alpha=0.5)
+
         plt.show()
 
+    def animate(self, i, ax1, xs, temps, temp_c):
+        try:
+            new_reading = adc.read_adc(0, gain=GAIN)
+            # new_temp = round(uniform(20.0, 25.0), 2)
+        except:
+            pass
+        if len(self.temparray) < 5:
+            self.temparray.append(new_reading)
+        else:
+            self.temparray.pop(0)
+            self.temparray.append(new_reading)
+        new_temp = np.mean(self.temparray)
+        temp_c.set('%.2f' % new_temp)
+        now = time.monotonic() - self.start
+        xs.append(now)
+        temps.append(new_temp)
+        self.integrsimp = integrate.simps(temps, xs)
+        self.integrtrap = np.trapz(temps, xs)
+        self.sum = self.sum + new_temp * 0.2
+        xs = xs[-max_elements:]
+        temps = temps[-max_elements:]
+        if len(temps) == 30:
+            self.noise = np.mean(temps)
+            self.peak.insert(tk.END, "Noise is %d. \n" % (self.noise))
+        if new_temp > 20:
+            if new_temp > self.max_temp:
+                self.max_temp = new_temp
+                self.fall_count -= 1
+                self.max_time = now
+                self.rise_count += 1
+                print(self.rise_count)
+            elif new_temp < self.max_temp and self.fall_count > 10:
+                self.max_temp = 0
+                self.fall_count = 0
+            elif self.fall_count > 7 and self.rise_count > 5:
+                self.fall_count = 0
+                self.rise_count = 0
+                self.maxdata_arr.append(self.max_temp)
+                self.maxtime_arr.append(self.max_time)
+                self.peak.insert(tk.END, "Found max at %d @ %d s.\n" % (self.max_temp, self.max_time))
+                self.max_temp = 0
+            elif temp_c.get() < self.max_temp:
+                self.fall_count += 1
+                if self.rise_count > 0 and self.rise_count < 6:
+                    self.rise_count -= 1
 
-        # ax = plt.subplot(111)
-        #
-        #
-        #
-        # dummy_ind = range(0, len(dummy))
-        # line, = plt.plot(dummy_ind, dummy, lw=2)
-        #
-        # max_dummy = min(dummy)
-        # max_index = dummy.index(max_dummy)
-        #
-        # print(max_dummy, dummy_ind[max_index])
-        #
-        # plt.annotate('local max', xy=(max_dummy, dummy_ind[max_index]), xytext=(max_dummy, dummy_ind[max_index]),
-        #              arrowprops=dict(facecolor='black'),)
-        #
-        # plt.ylim(0, 50)
-        #
-        # plt.show()
-
-    def update(self, method):
-        if method == "add":
-            self.total += self.entered_number
-        elif method == "subtract":
-            self.total -= self.entered_number
-        else:  # reset
-            self.total = 0
-
-        self.total_label_text.set(self.total)
-        self.entry.delete(0, END)
-
-    def savesth(self):
-        top = Toplevel()
-        l1 = Label(top, text="file name")
-        l1.pack(side=LEFT)
-        e1 = Entry(top, bd=5)
-        e1.pack(side=LEFT)
-        frame = Frame(top)
-        frame.pack()
-        top.mainloop()
-
-        x = np.linspace(0, 1, 201)
-        y = np.random.random(201)
-        header = "X-Column, Y-Column\n"
-        header += "This is a second line"
-        f = open(e1, 'wb')
-        np.savetxt(f, [], header=header)
-        for i in range(201):
-            data = np.column_stack((x[i], y[i]))
-            np.savetxt(f, data)
-        f.close()
+        self.ax1.clear()
+        self.ax1.grid()
+        self.ax1.set_ylabel('Sensor1 Data', color='green')
+        self.ax1.tick_params(axis='y', labelcolor='green')
+        self.ax1.set_facecolor('black')
+        self.ax1.fill_between(xs, temps, 0, linewidth=2, color='green', alpha=0.5)
+        formatter = matplotlib.ticker.FuncFormatter(lambda s, x: time.strftime('%M:%S', time.gmtime(s)))
+        self.ax1.xaxis.set_major_formatter(formatter)
+        self.ax1.collections[0].set_visible(temp_plot_visible)
+        # AWS
+        # mqttc.publish("PID value", new_temp, qos=1)        # topic: temperature # Publishing Temperature values
+        # print("msg sent: pid " + "%.2f" % new_temp ) # Print sent temperature msg on console
 
 
-root = Tk()
-root.title("welcome to PID")
-root.configure(background="black")
-root.geometry('400x300')
-my_gui = PID_analyzer(root)
-root.mainloop()
+class Calibrate:
+    def __init__(self, master):
+        self.master = master
+        self.frame = tk.Frame(self.master)
+        master.geometry("500x400")
+        self.frame.configure(bg='white')
+        self.dfont = tkFont.Font(size=-20)
+        self.nfont = tkFont.Font(size=-36)
+        self.frame.pack(fill=tk.BOTH, expand=1)
+        self.calib_temp1 = tk.DoubleVar()
+        self.calib_temp2 = tk.DoubleVar()
+        self.calib_factor1 = tk.DoubleVar()
+        self.calib_factor2 = tk.DoubleVar()
+        self.calib_temp1.set(0.00)
+        self.calib_temp2.set(0.00)
+
+        self.label_name = tk.Label(self.frame, text="The reading is ", font=self.dfont, bg='white').grid(row=0,
+                                                                                                         column=0)
+        self.label_data = tk.Label(self.frame, textvariable=temp_c, font=self.nfont, bg='white').grid(row=0, column=1,
+                                                                                                      columnspan=5)
+        self.label_calib1 = tk.Label(self.frame, textvariable=self.calib_temp1, font=self.dfont, bg='white').grid(row=1,
+                                                                                                                  column=1)
+        self.label_calib2 = tk.Label(self.frame, textvariable=self.calib_temp2, font=self.dfont, bg='white').grid(row=2,
+                                                                                                                  column=1)
+        self.button_data1 = tk.Button(self.frame, text="data point 1", font=self.dfont,
+                                      command=lambda: self.setdata(1)).grid(row=1, column=0)
+        self.button_data2 = tk.Button(self.frame, text="data point 2", font=self.dfont,
+                                      command=lambda: self.setdata(2)).grid(row=2, column=0)
+        self.confirmButton = tk.Button(self.frame, text='Confirm', font=self.dfont, width=15,
+                                       command=self.confirm).grid(row=3, column=0)
+        self.quitButton = tk.Button(self.frame, text='Quit', font=self.dfont, width=15,
+                                    command=self.close_windows).grid(row=3, column=1)
+        self.frame.pack()
+
+    def setdata(self, i):
+        if i == 1:
+            self.calib_temp1.set(temp_c.get())
+        else:
+            if i == 2:
+                self.calib_temp2.set(temp_c.get())
+
+    def confirm(self):
+        self.calib_factor1.set(self.calib_temp1)
+        self.calib_factor2.set(self.calib_temp2)
+        self.master.destroy()
+
+    def close_windows(self):
+        self.master.destroy()
+
+
+def main():
+    root = tk.Tk()
+    app = Demo1(root)
+    root.title("PID Analyzer")
+    root.geometry('700x500')
+    root.mainloop()
+
+
+if __name__ == '__main__':
+    main()
