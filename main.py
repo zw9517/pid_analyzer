@@ -57,7 +57,7 @@ else:
     print("waiting for connection")
 # Parameters
 update_interval = 10  # Time (ms) between polling/animation updates
-max_elements = 100  # Maximum number of elements to store in plot lists
+max_elements = 400  # Maximum number of elements to store in plot lists
 root = None
 dfont = None
 frame = None
@@ -189,7 +189,7 @@ class Demo1:
                (amp2 * wid2 ** 2 / ((x - cen2) ** 2 + wid2 ** 2)) + \
                (amp3 * wid3 ** 2 / ((x - cen3) ** 2 + wid3 ** 2))
 
-    def _4Lorentzian(self, x, amp1, cen1, wid1, amp2, cen2, wid2, amp3, cen3, wid3, amp4, cen4, wid4):
+    def _4Lorentzian(self, x, amp1, cen1, wid1, amp2, cen2, wid2, amp3, cen3, wid3):
         return (amp1 * wid1 ** 2 / ((x - cen1) ** 2 + wid1 ** 2)) + \
                (amp2 * wid2 ** 2 / ((x - cen2) ** 2 + wid2 ** 2)) + \
                (amp3 * wid3 ** 2 / ((x - cen3) ** 2 + wid3 ** 2)) + \
@@ -207,9 +207,6 @@ class Demo1:
         ax.set_xlabel('Time mm/ss')
         ax.set_ylabel('Reading()')
         ax.grid(True)
-
-        # Integrate
-        print("simps is %d, trapz is %d, the sum is %d" % (self.integrsimp, self.integrtrap, self.sum))
 
         # Peak Seperation
         if len(self.maxdata_arr) == 2:
@@ -236,6 +233,20 @@ class Demo1:
         plt.plot(self.xs, lorentz_peak_2, "y")
         plt.fill_between(self.xs, lorentz_peak_2.min(), lorentz_peak_2, facecolor="yellow", alpha=0.5)
 
+        i_simp_1 = integrate.simps(lorentz_peak_1, self.xs)
+        i_simp_2 = integrate.simps(lorentz_peak_2, self.xs)
+
+        isimp = []
+        isimp.append(i_simp_1)
+        isimp.append(i_simp_2)
+        # annotation
+        for i in range(len(self.maxdata_arr)):
+            ax.annotate('The Max is %d. \n The retention time is %d s. \n The area is %d.'
+                        % (self.maxdata_arr[i], self.maxtime_arr[i], isimp[i]),
+                        xy=(self.maxtime_arr[i] + 0.5, self.maxdata_arr[i] / 1.5),
+                        xytext=(self.maxtime_arr[i] + 2.5, self.maxdata_arr[i] / 1.5 + 5),
+                        arrowprops=dict(facecolor='black', shrink=0.05), )
+
         plt.show()
 
     def animate(self, i, ax1, xs, temps, temp_c):
@@ -254,25 +265,29 @@ class Demo1:
         now = time.monotonic() - self.start
         xs.append(now)
         temps.append(new_temp)
-        self.integrsimp = integrate.simps(temps, xs)
-        self.integrtrap = np.trapz(temps, xs)
-        self.sum = self.sum + new_temp * 0.2
+
+        # Integration
+        # self.integrsimp = integrate.simps(temps,xs)
+        # self.integrtrap = np.trapz(temps,xs)
+        # self.sum = self.sum + new_temp*0.2
         xs = xs[-max_elements:]
         temps = temps[-max_elements:]
+        if len(temps) == 1:
+            self.peak.insert(tk.END, "Wait for calibration... \n")
+
         if len(temps) == 30:
             self.noise = np.mean(temps)
-            self.peak.insert(tk.END, "Noise is %d. \n" % (self.noise))
+            self.peak.insert(tk.END, "Noise is %d. Ready to measure.\n" % (self.noise))
         if new_temp > 20:
             if new_temp > self.max_temp:
                 self.max_temp = new_temp
                 self.fall_count -= 1
                 self.max_time = now
                 self.rise_count += 1
-                print(self.rise_count)
             elif new_temp < self.max_temp and self.fall_count > 10:
                 self.max_temp = 0
                 self.fall_count = 0
-            elif self.fall_count > 7 and self.rise_count > 5:
+            elif self.fall_count > 7 and self.rise_count > 4:
                 self.fall_count = 0
                 self.rise_count = 0
                 self.maxdata_arr.append(self.max_temp)
@@ -281,7 +296,7 @@ class Demo1:
                 self.max_temp = 0
             elif temp_c.get() < self.max_temp:
                 self.fall_count += 1
-                if self.rise_count > 0 and self.rise_count < 6:
+                if self.rise_count > 0 and self.rise_count < 5:
                     self.rise_count -= 1
 
         self.ax1.clear()
@@ -358,3 +373,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
